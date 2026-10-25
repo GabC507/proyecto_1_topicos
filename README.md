@@ -8,12 +8,29 @@ Backend en **Python (FastAPI)** con base de datos **SQL**, API REST **documentad
 
 ---
 
+## Proyecto académico — Tópicos Especiales II / Proyecto 1
+
+Este trabajo parte de **[CitaFácil](https://github.com/gianca675/citafacil)**, creado por Giancarlos Alfaro y distribuido bajo la licencia MIT (ver [`LICENSE`](LICENSE)). El equipo conserva el aviso de autoría original y documenta aquí el trabajo académico realizado sobre esa aplicación existente.
+
+El equipo trabaja en cinco historias: reutilizar datos de contacto con consentimiento, mostrar disponibilidad en un calendario, estimar demanda desde las reservas históricas, permitir cancelar o reprogramar citas con verificación segura y permitir al administrador bloquear horarios.
+
+### Avance del equipo
+
+- **Previsión de demanda:** implementación local del endpoint protegido, cálculo histórico, gráfico administrativo y pruebas automatizadas. La suite local pasó **9 pruebas** con Python 3.12.10; quedan pendientes la revisión independiente y las pruebas funcionales de QA del equipo.
+- **Otras historias:** datos guardados, calendario dinámico, cancelación/reprogramación segura y bloqueo de horarios están planificadas en [`PLAN_DE_TRABAJO_EQUIPO.md`](PLAN_DE_TRABAJO_EQUIPO.md).
+- **Proceso y uso de IA:** los resultados verificados y las decisiones humanas se registran en [`AI_DEVELOPMENT_LOG.md`](AI_DEVELOPMENT_LOG.md).
+
+El detalle de roles, criterios de aceptación y próximos pasos está en el [plan de trabajo del equipo](PLAN_DE_TRABAJO_EQUIPO.md). Esta es una adaptación académica; no implica autoría del equipo sobre la aplicación base.
+
+---
+
 ## ✨ Características
 
 - **Reserva en 3 pasos**: el cliente elige servicio → día → hora libre, y deja su nombre y celular.
 - **Sin choques de horario**: el motor de disponibilidad calcula los espacios libres según la duración de cada servicio y **evita el doble-booking**.
 - **Recordatorios por WhatsApp**: envío automático (programado) X horas antes de la cita, además de confirmación al reservar.
 - **Panel de administración**: estadísticas, gestión de reservas (confirmar / cancelar / realizar / eliminar) y de servicios (crear / activar / eliminar), protegido por token.
+- **Previsión de demanda**: promedio de reservas por día de la semana a partir del historial; excluye citas canceladas y muestra cuando aún no hay datos.
 - **API REST documentada**: Swagger UI interactivo en `/docs`.
 - **Validación de datos**: teléfonos chilenos normalizados a formato E.164, horarios de atención y días cerrados configurables.
 - **Listo para desplegar**: Dockerfile, blueprint de Render y configuración por variables de entorno (SQLite en local → PostgreSQL en producción).
@@ -108,9 +125,12 @@ python -m uvicorn app.main:app --reload
 | DELETE | `/api/admin/appointments/{id}` | Eliminar reserva | 🔒 |
 | GET/POST/PUT/DELETE | `/api/admin/services` | Gestionar servicios | 🔒 |
 | GET  | `/api/admin/stats` | Estadísticas | 🔒 |
+| GET  | `/api/admin/demand-forecast?weeks=8` | Historial y previsión para los próximos siete días (4–26 semanas) | 🔒 |
 | POST | `/api/admin/reminders/run` | Enviar recordatorios ahora | 🔒 |
 
 🔒 = requiere la cabecera `X-Admin-Token`.
+
+La previsión es una media transparente de las reservas no canceladas del mismo día de la semana durante el periodo solicitado. Es una referencia para planificación, no una garantía de demanda.
 
 ---
 

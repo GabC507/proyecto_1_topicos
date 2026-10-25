@@ -1,6 +1,7 @@
 """Operaciones de base de datos (Create/Read/Update/Delete)."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
@@ -112,4 +113,61 @@ def stats(db: Session) -> dict:
         "cancelled": count(models.STATUS_CANCELLED),
         "done": count(models.STATUS_DONE),
         "upcoming": upcoming,
+    }
+
+
+def demand_forecast(db: Session, weeks: int = 8) -> dict:
+    """Estimate demand for the next seven days from matching past weekdays.
+
+    Cancelled appointments are excluded; each forecast is the mean booking
+    count for that weekday across the requested number of complete weeks.
+    """
+    from .utils import local_now
+
+    today = local_now().date()
+    history_start = today - timedelta(days=weeks * 7)
+    history_end = today - timedelta(days=1)
+    rows = (
+        db.query(models.Appointment.start_at)
+        .filter(
+            models.Appointment.start_at >= datetime.combine(history_start, time.min),
+            models.Appointment.start_at < datetime.combine(today, time.min),
+            models.Appointment.status.in_(
+                [models.STATUS_PENDING, models.STATUS_CONFIRMED, models.STATUS_DONE]
+            ),
+        )
+        .all()
+    )
+    counts = Counter(row[0].date() for row in rows)
+
+    history = []
+    for offset in range(weeks * 7):
+        history_date = history_start + timedelta(days=offset)
+        history.append({"date": history_date, "bookings": counts[history_date]})
+    forecast_start = today + timedelta(days=1)
+    forecast = []
+    for offset in range(7):
+        forecast_date = forecast_start + timedelta(days=offset)
+        samples = [
+            counts[forecast_date - timedelta(days=7 * sample)]
+            for sample in range(1, weeks + 1)
+        ]
+        forecast.append(
+            {
+                "date": forecast_date,
+                "weekday": forecast_date.weekday(),
+                "expected_bookings": round(sum(samples) / len(samples), 1),
+                "sample_weeks": len(samples),
+            }
+        )
+
+    return {
+        "lookback_weeks": weeks,
+        "history_start": history_start,
+        "history_end": history_end,
+        "history": history,
+        "forecast_start": forecast_start,
+        "forecast_end": forecast[-1]["date"],
+        "forecast": forecast,
+        "has_history": bool(rows),
     }

@@ -80,6 +80,18 @@ def get_stats(db: Session = Depends(get_db)):
     return crud.stats(db)
 
 
+@router.get(
+    "/demand-forecast",
+    response_model=schemas.DemandForecastOut,
+    summary="Previsión de demanda para los próximos siete días",
+)
+def get_demand_forecast(
+    weeks: int = Query(8, ge=4, le=26, description="Semanas históricas completas a comparar"),
+    db: Session = Depends(get_db),
+):
+    return crud.demand_forecast(db, weeks=weeks)
+
+
 @router.post("/reminders/run", summary="Enviar recordatorios ahora")
 def trigger_reminders(db: Session = Depends(get_db)):
     return run_reminders(db)

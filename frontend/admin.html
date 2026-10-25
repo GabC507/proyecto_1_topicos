@@ -52,6 +52,16 @@
   .stat .k{color:var(--muted);font-size:.85rem;font-weight:600}
   .stat.acc .v{color:var(--accent-2)} .stat.warn .v{color:var(--warn)} .stat.ok .v{color:var(--ok)}
 
+  .forecast-copy{color:var(--muted);font-size:.86rem;margin:-7px 0 18px}
+  .forecast-scroll{overflow-x:auto}
+  .forecast-chart{display:grid;grid-template-columns:repeat(7,minmax(58px,1fr));gap:12px;min-width:500px}
+  .forecast-day{text-align:center}
+  .forecast-value{font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:700;margin-bottom:7px}
+  .forecast-track{height:126px;background:var(--bg);border:1px solid var(--border);border-radius:9px;display:flex;align-items:flex-end;padding:4px}
+  .forecast-bar{width:100%;min-height:2px;border-radius:5px 5px 3px 3px;background:var(--grad)}
+  .forecast-label{font-size:.78rem;font-weight:700;margin-top:8px}
+  .forecast-date{font-size:.7rem;color:var(--muted)}
+
   .toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:18px}
   .toolbar .field{margin:0;min-width:150px}
 
@@ -108,6 +118,12 @@
     <!-- DASHBOARD -->
     <div id="dashView" class="hide">
       <div class="stats" id="stats"></div>
+
+      <div class="card">
+        <h2><i class="fa-solid fa-chart-column"></i> Demanda prevista</h2>
+        <p class="forecast-copy" id="forecastMeta">Calculando desde el historial…</p>
+        <div class="forecast-scroll"><div class="forecast-chart" id="forecastChart" aria-label="Previsión de reservas para los próximos siete días"></div></div>
+      </div>
 
       <div class="card">
         <h2><i class="fa-solid fa-list-check"></i> Reservas</h2>
@@ -200,7 +216,7 @@
   }
 
   /* ====== DATA ====== */
-  async function refreshAll(){ await Promise.all([loadStats(), loadAppointments(), loadServices()]); }
+  async function refreshAll(){ await Promise.all([loadStats(), loadForecast(), loadAppointments(), loadServices()]); }
 
   async function loadStats(){
     try{
@@ -211,6 +227,40 @@
         <div class="stat acc"><div class="v">${s.confirmed}</div><div class="k">Confirmadas</div></div>
         <div class="stat ok"><div class="v">${s.upcoming}</div><div class="k">Próximas</div></div>`;
     }catch(e){ if(e.status===401) logout(); }
+  }
+
+  async function loadForecast(){
+    const meta=$("forecastMeta"), chart=$("forecastChart");
+    meta.textContent="Calculando desde el historial…";
+    chart.replaceChildren();
+    try{
+      const result=await api("/api/admin/demand-forecast?weeks=8");
+      meta.textContent=`Promedio del mismo día de la semana en las últimas ${result.lookback_weeks} semanas. Las reservas canceladas se excluyen.`;
+      if(!result.has_history){
+        meta.textContent="Aún no hay reservas históricas para estimar la demanda. El gráfico se actualizará cuando existan datos.";
+      }
+      const max=Math.max(1,...result.forecast.map(day=>day.expected_bookings));
+      result.forecast.forEach(item=>{
+        const date=new Date(`${item.date}T12:00:00`);
+        const column=document.createElement("div"); column.className="forecast-day";
+        const value=document.createElement("div"); value.className="forecast-value";
+        value.textContent=item.expected_bookings.toLocaleString("es-CL",{maximumFractionDigits:1});
+        const track=document.createElement("div"); track.className="forecast-track";
+        const bar=document.createElement("div"); bar.className="forecast-bar";
+        bar.style.height=`${Math.max(2,item.expected_bookings/max*100)}%`;
+        bar.title=`Promedio estimado: ${value.textContent} reservas`;
+        track.appendChild(bar);
+        const label=document.createElement("div"); label.className="forecast-label";
+        label.textContent=date.toLocaleDateString("es-CL",{weekday:"short"}).replace(".","");
+        const dayDate=document.createElement("div"); dayDate.className="forecast-date";
+        dayDate.textContent=date.toLocaleDateString("es-CL",{day:"2-digit",month:"2-digit"});
+        column.append(value,track,label,dayDate);
+        chart.appendChild(column);
+      });
+    }catch(e){
+      if(e.status===401){ logout(); return; }
+      meta.textContent="No se pudo cargar la previsión: "+e.message;
+    }
   }
 
   const STLABEL = {pending:"Pendiente",confirmed:"Confirmada",cancelled:"Cancelada",done:"Realizada"};

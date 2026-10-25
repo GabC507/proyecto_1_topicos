@@ -1,7 +1,7 @@
 """Esquemas Pydantic (validación de entrada/salida de la API)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -100,6 +100,29 @@ class StatsOut(BaseModel):
     cancelled: int
     done: int
     upcoming: int
+
+
+class DemandHistoryDayOut(BaseModel):
+    date: date
+    bookings: int
+
+
+class DemandForecastDayOut(BaseModel):
+    date: date
+    weekday: int
+    expected_bookings: float
+    sample_weeks: int
+
+
+class DemandForecastOut(BaseModel):
+    lookback_weeks: int
+    history_start: date
+    history_end: date
+    history: list[DemandHistoryDayOut]
+    forecast_start: date
+    forecast_end: date
+    forecast: list[DemandForecastDayOut]
+    has_history: bool
 
 
 class MessageOut(BaseModel):

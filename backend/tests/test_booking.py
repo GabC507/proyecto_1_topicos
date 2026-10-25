@@ -1,12 +1,14 @@
 """Tests de la lógica de reservas y de la API."""
 import os
+import tempfile
+from pathlib import Path
 
 # Usar una base de datos de prueba aislada ANTES de importar la app.
-# (Se usa /tmp para evitar límites de E/S de sistemas de archivos de red.)
-os.environ["DATABASE_URL"] = "sqlite:////tmp/citafacil_test.db"
+test_db_path = (Path(tempfile.gettempdir()) / "citafacil_test.db").as_posix()
+os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path}"
 os.environ["ADMIN_TOKEN"] = "test-token"
 
-from datetime import timedelta  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -114,3 +116,66 @@ def test_admin_auth():
     assert client.get(
         "/api/admin/appointments", headers={"X-Admin-Token": "test-token"}
     ).status_code == 200  # correcto
+
+
+def test_demand_forecast_uses_weekday_history_and_excludes_cancelled():
+    service_id = client.get("/api/services").json()[0]["id"]
+    tomorrow = local_now().date() + timedelta(days=1)
+    last_week = tomorrow - timedelta(days=7)
+    two_weeks_ago = tomorrow - timedelta(days=14)
+
+    db = SessionLocal()
+    for day, status, name in [
+        (last_week, models.STATUS_CONFIRMED, "Confirmada 1"),
+        (last_week, models.STATUS_DONE, "Confirmada 2"),
+        (two_weeks_ago, models.STATUS_PENDING, "Pendiente"),
+        (last_week, models.STATUS_CANCELLED, "Cancelada"),
+    ]:
+        start_at = datetime.combine(day, datetime.min.time()).replace(hour=11)
+        db.add(
+            models.Appointment(
+                customer_name=name,
+                customer_phone="+56912345678",
+                service_id=service_id,
+                start_at=start_at,
+                end_at=start_at + timedelta(minutes=30),
+                status=status,
+            )
+        )
+    db.commit()
+    db.close()
+
+    response = client.get(
+        "/api/admin/demand-forecast?weeks=4",
+        headers={"X-Admin-Token": "test-token"},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert len(data["history"]) == 28
+    assert len(data["forecast"]) == 7
+    assert data["forecast"][0]["date"] == tomorrow.isoformat()
+    assert data["forecast"][0]["expected_bookings"] == 0.8
+    assert data["forecast"][0]["sample_weeks"] == 4
+    assert sum(day["bookings"] for day in data["history"]) == 3
+    assert data["has_history"] is True
+
+
+def test_demand_forecast_requires_admin_and_bounds_lookback():
+    assert client.get("/api/admin/demand-forecast").status_code == 422
+    assert client.get(
+        "/api/admin/demand-forecast?weeks=3",
+        headers={"X-Admin-Token": "test-token"},
+    ).status_code == 422
+
+
+def test_demand_forecast_without_history_reports_zero_with_no_history_flag():
+    response = client.get(
+        "/api/admin/demand-forecast?weeks=4",
+        headers={"X-Admin-Token": "test-token"},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["has_history"] is False
+    assert all(day["expected_bookings"] == 0 for day in data["forecast"])
