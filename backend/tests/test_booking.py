@@ -71,6 +71,110 @@ def test_create_and_conflict():
     assert r2.status_code == 409
 
 
+def test_management_code_is_random_hashed_and_required_for_lookup():
+    service_id = client.get("/api/services").json()[0]["id"]
+    start = _next_open_day_at(11)
+    booking = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Camila",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": start.isoformat(),
+        },
+    )
+    assert booking.status_code == 201, booking.text
+    token = booking.json()["management_token"]
+    assert len(token) >= 40
+
+    db = SessionLocal()
+    access = db.query(models.AppointmentAccess).one()
+    assert access.token_hash != token
+    assert len(access.token_hash) == 64
+    db.close()
+
+    invalid = client.post(
+        "/api/appointments/manage/lookup", json={"management_token": "x" * 43}
+    )
+    assert invalid.status_code == 404
+    lookup = client.post(
+        "/api/appointments/manage/lookup", json={"management_token": token}
+    )
+    assert lookup.status_code == 200, lookup.text
+    assert lookup.json()["service_id"] == service_id
+    assert "customer_phone" not in lookup.json()
+    assert "customer_name" not in lookup.json()
+
+
+def test_customer_can_cancel_only_with_management_code():
+    service_id = client.get("/api/services").json()[0]["id"]
+    start = _next_open_day_at(11)
+    booking = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Camila",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": start.isoformat(),
+        },
+    )
+    token = booking.json()["management_token"]
+
+    invalid = client.post(
+        "/api/appointments/manage/cancel", json={"management_token": "x" * 43}
+    )
+    assert invalid.status_code == 404
+    cancelled = client.post(
+        "/api/appointments/manage/cancel", json={"management_token": token}
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    available = client.get(
+        f"/api/availability?service_id={service_id}&date={start.date().isoformat()}"
+    ).json()
+    assert "11:00" in available
+
+
+def test_customer_can_reschedule_and_cannot_take_an_occupied_slot():
+    service_id = client.get("/api/services").json()[0]["id"]
+    start = _next_open_day_at(11)
+    first = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Camila",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": start.isoformat(),
+        },
+    )
+    token = first.json()["management_token"]
+    occupied_start = start.replace(hour=12)
+    second = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Ana",
+            "customer_phone": "942916571",
+            "service_id": service_id,
+            "start_at": occupied_start.isoformat(),
+        },
+    )
+    assert second.status_code == 201, second.text
+
+    conflict = client.post(
+        "/api/appointments/manage/reschedule",
+        json={"management_token": token, "start_at": occupied_start.isoformat()},
+    )
+    assert conflict.status_code == 409
+
+    new_start = start.replace(hour=13)
+    moved = client.post(
+        "/api/appointments/manage/reschedule",
+        json={"management_token": token, "start_at": new_start.isoformat()},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["start_at"].startswith(new_start.isoformat())
+    assert moved.json()["status"] == models.STATUS_PENDING
+
+
 def test_availability_removes_booked_slot():
     sid = client.get("/api/services").json()[0]["id"]
     day = _next_open_day_at(11)

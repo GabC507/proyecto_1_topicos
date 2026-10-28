@@ -71,6 +71,31 @@ class AppointmentOut(BaseModel):
     service: Optional[ServiceOut] = None
 
 
+class AppointmentCreatedOut(AppointmentOut):
+    management_token: str
+
+
+class AppointmentManageRequest(BaseModel):
+    management_token: str = Field(..., min_length=40, max_length=100)
+
+
+class AppointmentRescheduleRequest(AppointmentManageRequest):
+    start_at: datetime = Field(..., description="Nuevo inicio en hora local (ISO 8601)")
+
+    @field_validator("start_at")
+    @classmethod
+    def _naive_local(cls, v: datetime) -> datetime:
+        return to_local_naive(v)
+
+
+class ManagedAppointmentOut(BaseModel):
+    service_id: int
+    service_name: str
+    start_at: datetime
+    end_at: datetime
+    status: str
+
+
 class AppointmentStatusUpdate(BaseModel):
     status: str
 

@@ -61,9 +61,9 @@
   .svc .meta{display:flex;justify-content:space-between;color:var(--muted);font-size:.85rem}
   .svc .price{color:var(--accent-2);font-weight:700;font-family:'JetBrains Mono',monospace}
 
-  input,textarea{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:11px;color:var(--text);
+  input,textarea,select{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:11px;color:var(--text);
     font:inherit;padding:12px 14px;transition:border-color .2s,box-shadow .2s}
-  input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
   label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 7px;font-weight:600}
   .field{margin-bottom:16px}
   input[type=date]{color-scheme:dark}
@@ -108,6 +108,7 @@
   .result.ok .ic{color:var(--ok)} .result.err .ic{color:var(--err)}
   .result h3{font-size:1.3rem;margin-bottom:8px}
   .result p{color:var(--muted);margin-bottom:18px}
+  .manage-code{display:block;padding:12px;margin:-4px auto 18px;max-width:360px;border:1px dashed var(--accent-2);border-radius:10px;color:var(--accent-2);font-size:1rem;overflow-wrap:anywhere}
   .msg{border-radius:10px;padding:11px 14px;font-size:.9rem;margin-top:12px;display:none}
   .msg.err{display:block;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3);color:#fecaca}
 
@@ -192,12 +193,32 @@
       <div class="msg" id="formMsg"></div>
     </div>
 
+    <div class="card" id="manageCard">
+      <h2><i class="fa-solid fa-key"></i> Gestiona una cita existente</h2>
+      <p class="hint">Ingresa el código privado que recibiste al reservar. El teléfono por sí solo no permite acceder a una cita.</p>
+      <div class="field"><label for="managementToken">Código privado de gestión</label><input id="managementToken" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
+      <button class="btn ghost" id="lookupAppointmentBtn" type="button">Consultar cita</button>
+      <p class="msg" id="manageMsg" aria-live="polite"></p>
+      <div id="managedDetails" hidden>
+        <div class="summary" id="managedSummary"></div>
+        <div class="field"><label for="managedDate">Nueva fecha para reprogramar</label><input id="managedDate" type="date" /></div>
+        <button class="btn ghost" id="loadManagedSlotsBtn" type="button">Ver horarios disponibles</button>
+        <div class="field" style="margin-top:14px"><label for="managedTime">Nuevo horario</label><select id="managedTime" disabled><option value="">Primero elige una fecha</option></select></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" id="rescheduleAppointmentBtn" type="button" disabled>Reprogramar cita</button>
+          <button class="btn ghost" id="cancelAppointmentBtn" type="button">Cancelar cita</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Resultado -->
     <div class="card" id="cardDone" style="display:none">
       <div class="result ok">
         <div class="ic"><i class="fa-solid fa-circle-check"></i></div>
         <h3>¡Reserva confirmada!</h3>
         <p id="doneMsg"></p>
+        <p>Guarda este código privado: lo necesitarás para consultar, cancelar o reprogramar tu cita.</p>
+        <code class="manage-code" id="manageCode"></code>
         <button class="btn" onclick="location.reload()"><i class="fa-solid fa-plus"></i> Hacer otra reserva</button>
       </div>
     </div>
@@ -244,6 +265,7 @@
     service:null, date:null, time:null, services:[],
     month:`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`
   };
+  const managedState = {token:null, appointment:null};
   const $ = id => document.getElementById(id);
   const SAVED_CONTACT_KEY = "citafacil_saved_contact";
 
@@ -275,6 +297,87 @@
     $("forgetSavedContact").hidden = false;
   }
   $("forgetSavedContact").addEventListener("click", forgetSavedContact);
+
+  $("lookupAppointmentBtn").addEventListener("click", lookupManagedAppointment);
+  $("loadManagedSlotsBtn").addEventListener("click", loadManagedSlots);
+  $("rescheduleAppointmentBtn").addEventListener("click", rescheduleManagedAppointment);
+  $("cancelAppointmentBtn").addEventListener("click", cancelManagedAppointment);
+  $("managedDate").addEventListener("change", ()=>{
+    $("managedTime").replaceChildren(new Option("Primero consulta los horarios", ""));
+    $("managedTime").disabled = true;
+    $("rescheduleAppointmentBtn").disabled = true;
+  });
+
+  function showManageMessage(message, error=false){
+    const box=$("manageMsg");
+    box.textContent=message;
+    box.className="msg"+(error?" err":"");
+    box.style.display=message?"block":"none";
+  }
+
+  function formatManagedAppointment(appointment){
+    const date=new Date(appointment.start_at);
+    return `${appointment.service_name} · ${date.toLocaleDateString("es-CL",{weekday:"long",day:"2-digit",month:"long"})} a las ${date.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})} · Estado: ${appointment.status}`;
+  }
+
+  async function lookupManagedAppointment(){
+    const token=$("managementToken").value.trim();
+    if(!token){ showManageMessage("Escribe el código privado de tu reserva.",true); return; }
+    const button=$("lookupAppointmentBtn"); button.disabled=true;
+    showManageMessage("Consultando cita…"); $("managedDetails").hidden=true;
+    try{
+      const appointment=await api("/api/appointments/manage/lookup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({management_token:token})},65000);
+      managedState.token=token; managedState.appointment=appointment;
+      $("managedSummary").textContent=formatManagedAppointment(appointment);
+      $("managedDetails").hidden=false;
+      const canManage=["pending","confirmed"].includes(appointment.status) && new Date(appointment.start_at)>new Date();
+      $("cancelAppointmentBtn").disabled=!canManage;
+      $("rescheduleAppointmentBtn").disabled=true;
+      $("managedDate").value="";
+      $("managedTime").replaceChildren(new Option("Primero elige una fecha", ""));
+      showManageMessage(canManage?"Código válido. Puedes cancelar o elegir una nueva fecha.":"La cita ya no admite cambios.",!canManage);
+    }catch(e){ showManageMessage(e.message==="Error 404"?"Código inválido. Comprueba que lo escribiste correctamente.":e.message,true); }
+    finally{ button.disabled=false; }
+  }
+
+  async function loadManagedSlots(){
+    if(!managedState.appointment || !$("managedDate").value){ showManageMessage("Elige una nueva fecha primero.",true); return; }
+    const date=$("managedDate").value;
+    const select=$("managedTime"); select.disabled=true;
+    select.replaceChildren(new Option("Buscando horarios…", ""));
+    try{
+      const slots=await api(`/api/availability?service_id=${managedState.appointment.service_id}&date=${date}`,null,65000);
+      select.replaceChildren(new Option(slots.length?"Selecciona un horario":"No hay horarios disponibles", ""));
+      slots.forEach(slot=>select.add(new Option(slot,slot)));
+      select.disabled=!slots.length;
+      $("rescheduleAppointmentBtn").disabled=true;
+      select.onchange=()=>$("rescheduleAppointmentBtn").disabled=!select.value;
+      showManageMessage(slots.length?"Elige uno de los horarios disponibles.":"No hay horarios ese día. Prueba otra fecha.",!slots.length);
+    }catch(e){ select.replaceChildren(new Option("No se pudieron cargar horarios", "")); showManageMessage(e.message,true); }
+  }
+
+  async function cancelManagedAppointment(){
+    if(!managedState.token || !confirm("¿Quieres cancelar esta cita?")) return;
+    try{
+      await api("/api/appointments/manage/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({management_token:managedState.token})},65000);
+      managedState.appointment.status="cancelled";
+      $("managedSummary").textContent=formatManagedAppointment(managedState.appointment);
+      $("cancelAppointmentBtn").disabled=true; $("rescheduleAppointmentBtn").disabled=true;
+      showManageMessage("La cita fue cancelada.");
+    }catch(e){ showManageMessage(e.message,true); }
+  }
+
+  async function rescheduleManagedAppointment(){
+    const date=$("managedDate").value, time=$("managedTime").value;
+    if(!managedState.token || !date || !time){ showManageMessage("Selecciona una fecha y un horario disponibles.",true); return; }
+    try{
+      const appointment=await api("/api/appointments/manage/reschedule",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({management_token:managedState.token,start_at:`${date}T${time}:00`})},65000);
+      managedState.appointment=appointment;
+      $("managedSummary").textContent=formatManagedAppointment(appointment);
+      $("cancelAppointmentBtn").disabled=false; $("rescheduleAppointmentBtn").disabled=true;
+      showManageMessage("La cita fue reprogramada.");
+    }catch(e){ showManageMessage(e.message,true); }
+  }
 
   function setStep(n){
     $("st1").className = "step" + (n>1?" done":(n===1?" active":""));
@@ -464,11 +567,12 @@
     try{
       const payload={customer_name:name, customer_phone:phone, service_id:state.service.id,
         start_at:`${state.date}T${state.time}:00`, notes:$("notes").value.trim()};
-      await api("/api/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}, 65000);
+      const created=await api("/api/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}, 65000);
       rememberContact(name, phone);
       const d=new Date(state.date+"T"+state.time);
       const fecha=d.toLocaleDateString("es-CL",{weekday:"long",day:"2-digit",month:"long"});
       $("doneMsg").innerHTML=`Te esperamos el <b>${fecha}</b> a las <b>${state.time}</b>.<br>Te enviamos la confirmación por WhatsApp a ${phone}.`;
+      $("manageCode").textContent=created.management_token;
       ["cardSvc","cardWhen","cardWho"].forEach(id=>$(id).style.display="none");
       document.querySelector(".steps").style.display="none";
       $("cardDone").style.display="block";

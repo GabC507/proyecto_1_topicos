@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, datetime, time, timedelta
+import hashlib
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -45,7 +46,11 @@ def delete_service(db: Session, service: models.Service) -> None:
 
 # ---------- Citas ----------
 def create_appointment(
-    db: Session, data: schemas.AppointmentCreate, service: models.Service, end_at: datetime
+    db: Session,
+    data: schemas.AppointmentCreate,
+    service: models.Service,
+    end_at: datetime,
+    management_token: str,
 ) -> models.Appointment:
     obj = models.Appointment(
         customer_name=data.customer_name.strip(),
@@ -57,9 +62,39 @@ def create_appointment(
         status=models.STATUS_PENDING,
     )
     db.add(obj)
+    db.flush()
+    db.add(
+        models.AppointmentAccess(
+            appointment_id=obj.id,
+            token_hash=hashlib.sha256(management_token.encode("utf-8")).hexdigest(),
+        )
+    )
     db.commit()
     db.refresh(obj)
     return obj
+
+
+def appointment_by_management_token(db: Session, management_token: str) -> Optional[models.Appointment]:
+    token_hash = hashlib.sha256(management_token.encode("utf-8")).hexdigest()
+    access = (
+        db.query(models.AppointmentAccess)
+        .filter(models.AppointmentAccess.token_hash == token_hash)
+        .first()
+    )
+    if not access:
+        return None
+    return get_appointment(db, access.appointment_id)
+
+
+def reschedule_appointment(
+    db: Session, appointment: models.Appointment, start_at: datetime, end_at: datetime
+) -> models.Appointment:
+    appointment.start_at = start_at
+    appointment.end_at = end_at
+    appointment.reminder_sent = False
+    db.commit()
+    db.refresh(appointment)
+    return appointment
 
 
 def list_appointments(
@@ -88,6 +123,9 @@ def set_status(db: Session, appt: models.Appointment, status: str) -> models.App
 
 
 def delete_appointment(db: Session, appt: models.Appointment) -> None:
+    db.query(models.AppointmentAccess).filter(
+        models.AppointmentAccess.appointment_id == appt.id
+    ).delete(synchronize_session=False)
     db.delete(appt)
     db.commit()
 

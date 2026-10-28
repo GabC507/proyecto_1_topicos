@@ -47,3 +47,15 @@ class Appointment(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     service = relationship("Service", back_populates="appointments")
+
+
+class AppointmentAccess(Base):
+    """Hashed secret used by a customer to manage one appointment."""
+
+    __tablename__ = "appointment_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    appointment_id = Column(
+        Integer, ForeignKey("appointments.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
