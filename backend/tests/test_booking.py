@@ -92,6 +92,44 @@ def test_availability_removes_booked_slot():
     assert "11:00" not in after
 
 
+def test_month_calendar_shows_partial_days_and_releases_cancelled_bookings():
+    service_id = client.get("/api/services").json()[0]["id"]
+    day = _next_open_day_at(11)
+    month = day.strftime("%Y-%m")
+    url = f"/api/availability/calendar?service_id={service_id}&month={month}"
+
+    before = client.get(url)
+    assert before.status_code == 200, before.text
+    before_day = next(item for item in before.json() if item["date"] == day.date().isoformat())
+    assert before_day["status"] == "available"
+
+    booking = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Ana",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": day.isoformat(),
+        },
+    )
+    assert booking.status_code == 201, booking.text
+
+    occupied = client.get(url).json()
+    occupied_day = next(item for item in occupied if item["date"] == day.date().isoformat())
+    assert occupied_day["status"] == "partial"
+    assert occupied_day["available_slots"] == before_day["available_slots"] - 1
+
+    cancelled = client.patch(
+        f"/api/admin/appointments/{booking.json()['id']}",
+        headers={"X-Admin-Token": "test-token"},
+        json={"status": models.STATUS_CANCELLED},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    reopened = client.get(url).json()
+    reopened_day = next(item for item in reopened if item["date"] == day.date().isoformat())
+    assert reopened_day["status"] == "available"
+
+
 def test_reject_invalid_phone_on_booking():
     sid = client.get("/api/services").json()[0]["id"]
     start = _next_open_day_at(13)

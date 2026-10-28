@@ -93,6 +93,12 @@ class ConfigOut(BaseModel):
     closed_weekdays: list[int]
 
 
+class AvailabilityCalendarDayOut(BaseModel):
+    date: date
+    status: str
+    available_slots: int
+
+
 class StatsOut(BaseModel):
     total: int
     pending: int
