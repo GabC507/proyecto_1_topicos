@@ -16,9 +16,8 @@ El equipo trabaja en cinco historias: reutilizar datos de contacto con consentim
 
 ### Avance del equipo
 
-- **Historias implementadas:** previsión de demanda, datos guardados con consentimiento, calendario dinámico, cancelación/reprogramación con código privado y bloqueo administrativo de horarios.
-- **Estado de validación:** las pruebas automatizadas del backend pasan localmente con Python 3.12.6. La QA funcional independiente en escritorio y móvil y la revisión de los PR siguen pendientes.
-- **Guía para el equipo:** [QA, Reviewer y orden de los PR (PDF, 2 páginas)](docs/GUIA_QA_REVIEW_PRs.pdf) · [fuente HTML](docs/GUIA_QA_REVIEW_PRs.html).
+- **Previsión de demanda:** implementación local del endpoint protegido, cálculo histórico, gráfico administrativo y pruebas automatizadas. La suite local pasó **9 pruebas** con Python 3.12.10; quedan pendientes la revisión independiente y las pruebas funcionales de QA del equipo.
+- **Otras historias:** datos guardados, calendario dinámico, cancelación/reprogramación segura y bloqueo de horarios están planificadas en [`PLAN_DE_TRABAJO_EQUIPO.md`](PLAN_DE_TRABAJO_EQUIPO.md).
 - **Proceso y uso de IA:** los resultados verificados y las decisiones humanas se registran en [`AI_DEVELOPMENT_LOG.md`](AI_DEVELOPMENT_LOG.md).
 
 El detalle de roles, criterios de aceptación y próximos pasos está en el [plan de trabajo del equipo](PLAN_DE_TRABAJO_EQUIPO.md). Esta es una adaptación académica; no implica autoría del equipo sobre la aplicación base.
@@ -33,7 +32,7 @@ El detalle de roles, criterios de aceptación y próximos pasos está en el [pla
 - **Panel de administración**: estadísticas, gestión de reservas (confirmar / cancelar / realizar / eliminar) y de servicios (crear / activar / eliminar), protegido por token.
 - **Previsión de demanda**: promedio de reservas por día de la semana a partir del historial; excluye citas canceladas y muestra cuando aún no hay datos.
 - **API REST documentada**: Swagger UI interactivo en `/docs`.
-- **Validación de datos**: teléfonos chilenos y panameños normalizados a formato E.164, horarios de atención y días cerrados configurables.
+- **Validación de datos**: teléfonos chilenos normalizados a formato E.164, horarios de atención y días cerrados configurables.
 - **Listo para desplegar**: Dockerfile, blueprint de Render y configuración por variables de entorno (SQLite en local → PostgreSQL en producción).
 
 ---

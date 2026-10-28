@@ -30,9 +30,9 @@ Los roles son por sprint, no cargos permanentes. El Developer implementa y entre
 
 ### Responsabilidades del sprint actual
 
-- **Tú, Developer:** la previsión está integrada en `main`. Las otras cuatro historias están implementadas en ramas locales apiladas, una por historia. La suite automatizada pasa; falta QA funcional independiente y revisión de los PR.
-- **Compañero/a 2, Reviewer:** revisar la previsión y cada historia nueva en su PR. Comprobar autorización, privacidad, criterios de aceptación y pruebas; registrar comentarios antes de aprobar.
-- **Compañero/a 3, QA:** verificar previsión, datos guardados, calendario, gestión segura de citas y bloqueos en escritorio y móvil. Adjuntar pasos, resultados y capturas relevantes.
+- **Tú, Developer:** ya implementaste el endpoint administrativo de previsión, su cálculo por día de semana, el gráfico del panel y pruebas. La rama local es `feature/demand-forecast`. Falta que el Reviewer examine el cambio y que QA ejecute las pruebas.
+- **Compañero/a 2, Reviewer:** comprobar autenticación, promedio por el mismo día de la semana, exclusión de canceladas, límites del periodo y claridad del gráfico. Registrar comentarios en el PR; no aprobar sin revisar.
+- **Compañero/a 3, QA:** ejecutar la suite de pruebas; comprobar historial vacío, historial con reservas/cancelaciones, respuesta sin token y gráfico en escritorio y móvil. Adjuntar pasos, resultados y capturas relevantes.
 
 ## Cómo trabajaremos cada historia
 
@@ -60,8 +60,8 @@ Mantener `AI_DEVELOPMENT_LOG.md` con usos significativos, resultados y decisione
 ## Acciones inmediatas
 
 - Asignar los nombres reales a Compañero/a 2 y Compañero/a 3 y confirmar la rotación.
-- Confirmar Issues y criterios de aceptación para las cinco historias; el repositorio del equipo está configurado como remoto.
-- Publicar las ramas de las cuatro historias nuevas y abrir PRs en orden. La previsión ya está en `main`, por lo que no tiene un PR pendiente.
-- Ejecutar QA funcional de todos los flujos antes de integrar los PRs; no subir cambios al repositorio original del autor.
+- Crear un repositorio o fork del equipo e invitar a los tres integrantes. La rama actual es local; no subirla al repositorio original del autor.
+- Instalar las dependencias del backend y ejecutar `python -m pytest` antes de aprobar la previsión.
+- Crear Issues para las cinco historias y abrir un PR para `feature/demand-forecast` cuando el Reviewer y QA hayan terminado.
 - Preparar datos históricos de prueba para la demostración de la previsión; no insertar datos ficticios en producción.
 - Preparar a los tres integrantes para presentar y responder preguntas sobre arquitectura, pruebas y decisiones de IA.
