@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from .. import crud, models, schemas
 from ..auth import require_admin
 from ..database import get_db
+from ..forecast import build_demand_forecast
+from ..models import Appointment
 from ..reminders import run_reminders
 from ..utils import local_now
 
@@ -137,6 +139,24 @@ def get_demand_forecast(
     db: Session = Depends(get_db),
 ):
     return crud.demand_forecast(db, weeks=weeks)
+
+
+@router.get("/forecast", summary="Previsión de demanda")
+def demand_forecast(
+    history_weeks: int = Query(8, ge=1, le=52),
+    db: Session = Depends(get_db),
+):
+    today = local_now().date()
+    window_start = today - timedelta(days=history_weeks * 7)
+    appointments = (
+        db.query(Appointment)
+        .filter(
+            Appointment.start_at >= datetime.combine(window_start, time.min),
+            Appointment.start_at < datetime.combine(today, time.min),
+        )
+        .all()
+    )
+    return build_demand_forecast(appointments, today, history_weeks)
 
 
 @router.post("/reminders/run", summary="Enviar recordatorios ahora")

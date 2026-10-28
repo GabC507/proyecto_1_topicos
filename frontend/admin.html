@@ -52,15 +52,11 @@
   .stat .k{color:var(--muted);font-size:.85rem;font-weight:600}
   .stat.acc .v{color:var(--accent-2)} .stat.warn .v{color:var(--warn)} .stat.ok .v{color:var(--ok)}
 
-  .forecast-copy{color:var(--muted);font-size:.86rem;margin:-7px 0 18px}
-  .forecast-scroll{overflow-x:auto}
-  .forecast-chart{display:grid;grid-template-columns:repeat(7,minmax(58px,1fr));gap:12px;min-width:500px}
-  .forecast-day{text-align:center}
-  .forecast-value{font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:700;margin-bottom:7px}
-  .forecast-track{height:126px;background:var(--bg);border:1px solid var(--border);border-radius:9px;display:flex;align-items:flex-end;padding:4px}
-  .forecast-bar{width:100%;min-height:2px;border-radius:5px 5px 3px 3px;background:var(--grad)}
-  .forecast-label{font-size:.78rem;font-weight:700;margin-top:8px}
-  .forecast-date{font-size:.7rem;color:var(--muted)}
+  .forecast-chart{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;align-items:end}
+  .forecast-day{min-width:0;text-align:center;color:var(--muted);font-size:.78rem}
+  .forecast-day .value{display:block;color:var(--text);font-weight:700;margin-bottom:7px}
+  .forecast-track{height:130px;display:flex;align-items:end;background:var(--bg);border-radius:9px;margin-bottom:7px;overflow:hidden}
+  .forecast-bar{width:100%;height:var(--bar-height);background:var(--grad);border-radius:8px 8px 0 0}
 
   .toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:18px}
   .toolbar .field{margin:0;min-width:150px}
@@ -90,7 +86,7 @@
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);border-radius:11px;padding:12px 18px;box-shadow:var(--shadow);font-size:.9rem;display:none;z-index:50}
   .toast.err{border-color:rgba(248,113,113,.5)} .toast.ok{border-color:rgba(34,197,94,.5)}
   .hide{display:none!important}
-  @media(max-width:680px){ .add-svc{grid-template-columns:1fr 1fr}; table{font-size:.82rem}; th:nth-child(3),td:nth-child(3){display:none} }
+  @media(max-width:680px){ nav{height:auto;flex-direction:column;align-items:stretch;gap:6px;padding:8px 0}; .brand{justify-content:center;font-size:.84rem;gap:6px;white-space:nowrap}; .brand span{font-size:.72rem!important}; .nav-right{justify-content:center;gap:14px}; .nav-right a,.nav-right button{font-size:.75rem;white-space:nowrap}; .add-svc{grid-template-columns:1fr 1fr}; table{font-size:.82rem}; th:nth-child(3),td:nth-child(3){display:none}; .forecast-chart{gap:4px}; .forecast-day{font-size:.66rem}; .forecast-track{height:100px} }
 </style>
 </head>
 <body>
@@ -121,10 +117,10 @@
     <div id="dashView" class="hide">
       <div class="stats" id="stats"></div>
 
-      <div class="card">
-        <h2><i class="fa-solid fa-chart-column"></i> Demanda prevista</h2>
-        <p class="forecast-copy" id="forecastMeta">Calculando desde el historial…</p>
-        <div class="forecast-scroll"><div class="forecast-chart" id="forecastChart" aria-label="Previsión de reservas para los próximos siete días"></div></div>
+      <div class="card" id="forecastCard">
+        <h2><i class="fa-solid fa-chart-column"></i> Previsión de demanda</h2>
+        <p id="forecastStatus" class="empty" aria-live="polite">Cargando previsión…</p>
+        <div id="forecastChart"></div>
       </div>
 
       <div class="card">
@@ -231,7 +227,7 @@
   }
 
   /* ====== DATA ====== */
-  async function refreshAll(){ await Promise.all([loadStats(), loadForecast(), loadAppointments(), loadServices(), loadBlockedTimes()]); }
+  async function refreshAll(){ await Promise.all([loadStats(), loadAppointments(), loadServices(), loadForecast(), loadBlockedTimes()]); }
 
   async function loadStats(){
     try{
@@ -245,36 +241,27 @@
   }
 
   async function loadForecast(){
-    const meta=$("forecastMeta"), chart=$("forecastChart");
-    meta.textContent="Calculando desde el historial…";
-    chart.replaceChildren();
+    const status = $("forecastStatus"), chart = $("forecastChart");
+    status.textContent = "Cargando previsión…";
+    chart.innerHTML = "";
     try{
-      const result=await api("/api/admin/demand-forecast?weeks=8");
-      meta.textContent=`Promedio del mismo día de la semana en las últimas ${result.lookback_weeks} semanas. Las reservas canceladas se excluyen.`;
-      if(!result.has_history){
-        meta.textContent="Aún no hay reservas históricas para estimar la demanda. El gráfico se actualizará cuando existan datos.";
-      }
-      const max=Math.max(1,...result.forecast.map(day=>day.expected_bookings));
-      result.forecast.forEach(item=>{
-        const date=new Date(`${item.date}T12:00:00`);
-        const column=document.createElement("div"); column.className="forecast-day";
-        const value=document.createElement("div"); value.className="forecast-value";
-        value.textContent=item.expected_bookings.toLocaleString("es-CL",{maximumFractionDigits:1});
-        const track=document.createElement("div"); track.className="forecast-track";
-        const bar=document.createElement("div"); bar.className="forecast-bar";
-        bar.style.height=`${Math.max(2,item.expected_bookings/max*100)}%`;
-        bar.title=`Promedio estimado: ${value.textContent} reservas`;
-        track.appendChild(bar);
-        const label=document.createElement("div"); label.className="forecast-label";
-        label.textContent=date.toLocaleDateString("es-CL",{weekday:"short"}).replace(".","");
-        const dayDate=document.createElement("div"); dayDate.className="forecast-date";
-        dayDate.textContent=date.toLocaleDateString("es-CL",{day:"2-digit",month:"2-digit"});
-        column.append(value,track,label,dayDate);
-        chart.appendChild(column);
-      });
+      const data = await api("/api/admin/forecast");
+      if(!data.has_history){ status.textContent = data.message; return; }
+      status.textContent = `Estimación por día de la semana para los próximos 7 días; promedio del mismo día en las últimas ${data.history_weeks} semanas. Cancelaciones excluidas.`;
+      const max = Math.max(...data.estimates.map(item => item.average_appointments), 1);
+      chart.innerHTML = `<div class="forecast-chart">${data.estimates.map(item => {
+        const height = item.average_appointments ? (item.average_appointments / max * 100) : 0;
+        const day = new Date(item.date + "T12:00:00").toLocaleDateString("es-CL", {day:"2-digit", month:"2-digit"});
+        return `<div class="forecast-day" aria-label="${item.weekday} ${day}: promedio de ${item.average_appointments.toFixed(1)} reservas">
+          <span class="value">${item.average_appointments.toFixed(1)}</span>
+          <div class="forecast-track" aria-hidden="true"><div class="forecast-bar" style="--bar-height:${height}%"></div></div>
+          <span>${item.weekday.slice(0,3)} ${day}</span>
+        </div>`;
+      }).join("")}</div>`;
     }catch(e){
-      if(e.status===401){ logout(); return; }
-      meta.textContent="No se pudo cargar la previsión: "+e.message;
+      if(e.status === 401){ logout(); return; }
+      status.textContent = "No se pudo cargar la previsión: " + e.message;
+      chart.innerHTML = "";
     }
   }
 
