@@ -211,6 +211,7 @@
   </div>
 </footer>
 
+<script src="request-sequence.js"></script>
 <script>
   /* ====== CONFIG ====== */
   // Cambia esta URL por la de tu backend en producción (Render).
@@ -244,6 +245,7 @@
     service:null, date:null, time:null, services:[],
     month:`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`
   };
+  const slotsRequests = createRequestSequence();
   const $ = id => document.getElementById(id);
   const SAVED_CONTACT_KEY = "citafacil_saved_contact";
 
@@ -343,6 +345,7 @@
 
   function selectService(s, el){
     state.service = s; state.date=null; state.time=null;
+    slotsRequests.invalidate();
     document.querySelectorAll(".svc").forEach(x=>x.classList.remove("sel"));
     el.classList.add("sel");
     $("whenHint").textContent = `${s.name} · ${s.duration_min} min · ${money(s.price)}`;
@@ -360,6 +363,7 @@
     const next = new Date(year, month - 1 + delta, 1);
     state.month = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,"0")}`;
     state.date = null; state.time = null;
+    slotsRequests.invalidate();
     $("slots").innerHTML = '<div class="empty">Elige un día del calendario.</div>';
     loadCalendar();
   }
@@ -414,10 +418,6 @@
     loadSlots();
   }
 
-  // Token incremental: solo la última petición pinta el resultado (evita que una
-  // respuesta vieja pise a la nueva cuando se teclea la fecha dígito a dígito).
-  let slotsReq = 0;
-
   async function loadSlots(){
     if(!state.service || !state.date) return;
     const date = state.date;
@@ -425,11 +425,11 @@
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
     const box = $("slots");
     state.time = null;
-    const myReq = ++slotsReq;
+    const myReq = slotsRequests.next();
     box.innerHTML = '<div class="empty"><span class="spin"></span> Buscando horarios…</div>';
     try{
       const list = await api(`/api/availability?service_id=${state.service.id}&date=${date}`, null, 65000);
-      if(myReq !== slotsReq) return; // llegó tarde: hay una petición más nueva
+      if(!slotsRequests.isCurrent(myReq)) return; // llegó tarde: cambió el contexto
       if(!Array.isArray(list) || !list.length){
         box.innerHTML='<div class="empty">No hay horarios ese día. Prueba otra fecha.</div>'; return;
       }
@@ -439,7 +439,7 @@
         b.onclick=()=>selectSlot(t,b); box.appendChild(b);
       });
     }catch(e){
-      if(myReq !== slotsReq) return;
+      if(!slotsRequests.isCurrent(myReq)) return;
       box.innerHTML='<div class="empty">Error cargando horarios. Prueba de nuevo.</div>';
     }
   }
