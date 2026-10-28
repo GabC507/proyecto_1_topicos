@@ -1,4 +1,4 @@
-"""Utilidades: validación de teléfono chileno y manejo de fechas locales."""
+"""Utilidades: validación de teléfonos y manejo de fechas locales."""
 from __future__ import annotations
 
 import re
@@ -12,14 +12,18 @@ class PhoneError(ValueError):
     """Error de validación de número telefónico."""
 
 
-def normalize_cl_phone(raw: str) -> str:
-    """Normaliza un celular chileno a formato E.164 (+569XXXXXXXX).
+def normalize_phone(raw: str) -> str:
+    """Normaliza teléfonos chilenos y panameños a formato E.164.
 
-    Acepta entradas como:
-        "+56 9 4291 6570", "56942916570", "9 4291 6570",
-        "942916570", "+569 4291 6570"
+    Los números panameños deben incluir +507; los chilenos conservan sus
+    formatos nacionales e internacionales anteriores.
     """
     digits = re.sub(r"[^\d]", "", raw or "")
+    if digits.startswith("507"):
+        number = digits[3:]
+        if len(number) == 8 and number[0] in "23456789":
+            return "+507" + number
+        raise PhoneError("Número panameño inválido. Usa +507 seguido de 8 dígitos.")
     if digits.startswith("56"):          # prefijo país
         digits = digits[2:]
     if digits.startswith("0"):           # 0 de larga distancia

@@ -44,6 +44,41 @@ def delete_service(db: Session, service: models.Service) -> None:
     db.commit()
 
 
+# ---------- Bloqueos de horario ----------
+def list_blocked_times(db: Session) -> list[models.BlockedTime]:
+    return db.query(models.BlockedTime).order_by(models.BlockedTime.start_at).all()
+
+
+def create_blocked_time(
+    db: Session, start_at: datetime, end_at: datetime, reason: str
+) -> models.BlockedTime:
+    from .utils import local_now
+
+    conflict = (
+        db.query(models.Appointment.id)
+        .filter(
+            models.Appointment.status.in_([models.STATUS_PENDING, models.STATUS_CONFIRMED]),
+            models.Appointment.end_at > local_now(),
+            models.Appointment.start_at < end_at,
+            models.Appointment.end_at > start_at,
+        )
+        .first()
+    )
+    if conflict:
+        raise ValueError("No se puede bloquear un horario con citas activas.")
+
+    block = models.BlockedTime(start_at=start_at, end_at=end_at, reason=reason.strip())
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+def delete_blocked_time(db: Session, block: models.BlockedTime) -> None:
+    db.delete(block)
+    db.commit()
+
+
 # ---------- Citas ----------
 def create_appointment(
     db: Session,

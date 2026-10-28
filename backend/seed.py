@@ -9,7 +9,7 @@ from datetime import timedelta
 from app import models
 from app.config import settings
 from app.database import Base, SessionLocal, engine
-from app.utils import local_now, normalize_cl_phone
+from app.utils import local_now, normalize_phone
 
 SERVICES = [
     {"name": "Corte de pelo", "duration_min": 30, "price": 8000},
@@ -51,7 +51,7 @@ def run() -> None:
                 db.add(
                     models.Appointment(
                         customer_name=name,
-                        customer_phone=normalize_cl_phone(phone),
+                        customer_phone=normalize_phone(phone),
                         service_id=svc.id,
                         start_at=start,
                         end_at=start + timedelta(minutes=svc.duration_min),

@@ -81,6 +81,8 @@
   .svc-row .price{color:var(--accent-2);font-family:'JetBrains Mono',monospace;font-weight:700}
   .svc-row .inactive{opacity:.5}
   .add-svc{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;align-items:end;margin-top:14px}
+  .block-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:end;margin-bottom:14px}
+  .block-hint{color:var(--muted);font-size:.84rem;margin:-8px 0 16px}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);border-radius:11px;padding:12px 18px;box-shadow:var(--shadow);font-size:.9rem;display:none;z-index:50}
   .toast.err{border-color:rgba(248,113,113,.5)} .toast.ok{border-color:rgba(34,197,94,.5)}
   .hide{display:none!important}
@@ -156,6 +158,19 @@
           <button class="btn sm" onclick="addService()"><i class="fa-solid fa-plus"></i> Agregar</button>
         </div>
       </div>
+
+      <div class="card">
+        <h2><i class="fa-solid fa-calendar-xmark"></i> Bloquear horarios</h2>
+        <p class="block-hint">Indica ambas horas para bloquear un intervalo. Déjalas vacías para cerrar el día completo. No se permiten bloqueos sobre citas activas.</p>
+        <div class="block-form">
+          <div class="field" style="margin:0"><label for="blockDate">Fecha</label><input id="blockDate" type="date" /></div>
+          <div class="field" style="margin:0"><label for="blockStart">Desde (opcional)</label><input id="blockStart" type="time" /></div>
+          <div class="field" style="margin:0"><label for="blockEnd">Hasta (opcional)</label><input id="blockEnd" type="time" /></div>
+          <div class="field" style="margin:0"><label for="blockReason">Motivo (opcional)</label><input id="blockReason" maxlength="200" placeholder="Ej: reunión" /></div>
+          <button class="btn sm" id="addBlockBtn" type="button"><i class="fa-solid fa-lock"></i> Crear bloqueo</button>
+        </div>
+        <div id="blockedList"><div class="empty">Cargando bloqueos…</div></div>
+      </div>
     </div>
 
   </div>
@@ -180,7 +195,17 @@
     opts.headers = Object.assign({"X-Admin-Token": TOKEN}, opts.headers||{});
     const r = await fetch(API + path, opts);
     if(r.status===401 || r.status===422 && path.startsWith("/api/admin")){ /* handled by caller */ }
-    if(!r.ok){ let d; try{d=await r.json()}catch(e){}; const err=new Error((d&&d.detail)||("Error "+r.status)); err.status=r.status; throw err; }
+    if(!r.ok){
+      let d; try{d=await r.json()}catch(e){}
+      const detail=d&&d.detail;
+      const labels={customer_name:"Nombre",customer_phone:"Celular",service_id:"Servicio",start_at:"Fecha y hora",notes:"Nota",management_token:"Código de gestión",day:"Fecha",start_time:"Hora de inicio",end_time:"Hora de término",reason:"Motivo"};
+      const message=typeof detail==="string"?detail:Array.isArray(detail)?detail.map(item=>{
+        if(typeof item==="string") return item;
+        const field=Array.isArray(item.loc)?item.loc.filter(part=>part!=="body").map(part=>labels[part]||part).join("."):"";
+        return `${field?field+": ":""}${item.msg||"Dato inválido"}`;
+      }).join("; "):detail&&typeof detail==="object"?JSON.stringify(detail):("Error "+r.status);
+      const err=new Error(message); err.status=r.status; throw err;
+    }
     return r.status===204 ? null : r.json();
   }
 
@@ -212,7 +237,7 @@
   }
 
   /* ====== DATA ====== */
-  async function refreshAll(){ await Promise.all([loadStats(), loadAppointments(), loadServices(), loadForecast()]); }
+  async function refreshAll(){ await Promise.all([loadStats(), loadAppointments(), loadServices(), loadForecast(), loadBlockedTimes()]); }
 
   async function loadStats(){
     try{
@@ -322,6 +347,50 @@
     }catch(e){ toast(e.message,"err"); }
   }
 
+  async function loadBlockedTimes(){
+    const box=$("blockedList");
+    try{
+      const blocks=await api("/api/admin/blocked-times");
+      if(!blocks.length){ box.innerHTML='<div class="empty">No hay fechas u horarios bloqueados.</div>'; return; }
+      box.replaceChildren();
+      blocks.forEach(block=>{
+        const row=document.createElement("div"); row.className="svc-row";
+        const info=document.createElement("div"); info.className="info";
+        const interval=document.createElement("b");
+        const start=new Date(block.start_at), end=new Date(block.end_at);
+        const fullDay=start.getHours()===0 && start.getMinutes()===0 && end.getHours()===0 && end.getMinutes()===0
+          && start.toDateString()!==end.toDateString();
+        interval.textContent=fullDay
+          ? `${start.toLocaleDateString("es-CL",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})} · Todo el día`
+          : `${fmtDT(block.start_at)}–${end.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}`;
+        info.appendChild(interval);
+        if(block.reason){ const reason=document.createElement("span"); reason.textContent=block.reason; info.appendChild(reason); }
+        const remove=document.createElement("button"); remove.className="ico del"; remove.type="button"; remove.title="Eliminar bloqueo";
+        remove.innerHTML='<i class="fa-solid fa-trash"></i>'; remove.addEventListener("click",()=>deleteBlockedTime(block.id));
+        row.append(info,remove); box.appendChild(row);
+      });
+    }catch(e){ if(e.status===401){logout();return;} box.textContent="No se pudieron cargar los bloqueos: "+e.message; }
+  }
+
+  async function createBlockedTime(){
+    const day=$("blockDate").value, start=$("blockStart").value, end=$("blockEnd").value;
+    if(!day){ toast("Selecciona una fecha","err"); return; }
+    if(Boolean(start)!==Boolean(end)){ toast("Indica ambas horas o deja ambas vacías","err"); return; }
+    try{
+      await api("/api/admin/blocked-times",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        day,start_time:start||null,end_time:end||null,reason:$("blockReason").value.trim()
+      })});
+      $("blockStart").value=""; $("blockEnd").value=""; $("blockReason").value="";
+      toast("Horario bloqueado","ok"); loadBlockedTimes();
+    }catch(e){ toast(e.message,"err"); }
+  }
+
+  async function deleteBlockedTime(id){
+    if(!confirm("¿Eliminar este bloqueo y volver a ofrecer el horario?")) return;
+    try{ await api(`/api/admin/blocked-times/${id}`,{method:"DELETE"}); toast("Bloqueo eliminado","ok"); loadBlockedTimes(); }
+    catch(e){ toast(e.message,"err"); }
+  }
+
   async function runReminders(){
     const b=$("remindBtn"); b.disabled=true; const old=b.innerHTML; b.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Enviando…';
     try{ const r=await api("/api/admin/reminders/run",{method:"POST"}); toast(`Recordatorios: ${r.enviados} enviados de ${r.candidatas}`,"ok"); loadStats(); }
@@ -330,6 +399,10 @@
   }
 
   function clearFilters(){ $("fStatus").value=""; $("fDate").value=""; loadAppointments(); }
+
+  $("addBlockBtn").addEventListener("click",createBlockedTime);
+  const blockToday=new Date();
+  $("blockDate").min=`${blockToday.getFullYear()}-${String(blockToday.getMonth()+1).padStart(2,"0")}-${String(blockToday.getDate()).padStart(2,"0")}`;
 
   /* init */
   if(TOKEN){ showDash(); }

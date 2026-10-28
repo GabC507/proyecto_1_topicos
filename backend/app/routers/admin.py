@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import crud, schemas
+from .. import crud, models, schemas
 from ..auth import require_admin
 from ..database import get_db
 from ..forecast import build_demand_forecast
@@ -48,6 +48,52 @@ def remove_service(service_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Servicio no encontrado.")
     crud.delete_service(db, service)
     return {"detail": "Servicio eliminado."}
+
+
+# ---------- Bloqueos de horario ----------
+@router.get(
+    "/blocked-times",
+    response_model=list[schemas.BlockedTimeOut],
+    summary="Listar horarios bloqueados",
+)
+def all_blocked_times(db: Session = Depends(get_db)):
+    return crud.list_blocked_times(db)
+
+
+@router.post(
+    "/blocked-times",
+    response_model=schemas.BlockedTimeOut,
+    status_code=201,
+    summary="Bloquear fecha u horario",
+)
+def add_blocked_time(payload: schemas.BlockedTimeCreate, db: Session = Depends(get_db)):
+    start_at = datetime.combine(payload.day, payload.start_time or time.min)
+    end_at = (
+        datetime.combine(payload.day, payload.end_time)
+        if payload.end_time is not None
+        else datetime.combine(payload.day + timedelta(days=1), time.min)
+    )
+    if end_at <= local_now():
+        raise HTTPException(
+            status_code=422, detail="El bloqueo debe incluir un horario futuro."
+        )
+    try:
+        return crud.create_blocked_time(db, start_at, end_at, payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/blocked-times/{block_id}",
+    response_model=schemas.MessageOut,
+    summary="Eliminar bloqueo",
+)
+def remove_blocked_time(block_id: int, db: Session = Depends(get_db)):
+    block = db.query(models.BlockedTime).filter(models.BlockedTime.id == block_id).first()
+    if not block:
+        raise HTTPException(status_code=404, detail="Bloqueo no encontrado.")
+    crud.delete_blocked_time(db, block)
+    return {"detail": "Bloqueo eliminado."}
 
 
 # ---------- Citas ----------
