@@ -17,18 +17,22 @@ def _overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: date
     return a_start < b_end and b_start < a_end
 
 
-def _booked_that_day(db: Session, day: date) -> list[models.Appointment]:
+def _booked_that_day(
+    db: Session, day: date, exclude_appointment_id: int | None = None
+) -> list[models.Appointment]:
     day_start = datetime.combine(day, time.min)
     day_end = datetime.combine(day, time.max)
-    return (
+    query = (
         db.query(models.Appointment)
         .filter(
             models.Appointment.status != models.STATUS_CANCELLED,
             models.Appointment.start_at >= day_start,
             models.Appointment.start_at <= day_end,
         )
-        .all()
     )
+    if exclude_appointment_id is not None:
+        query = query.filter(models.Appointment.id != exclude_appointment_id)
+    return query.all()
 
 
 def generate_slots(db: Session, service: models.Service, day: date) -> list[str]:
@@ -92,7 +96,12 @@ def generate_calendar(db: Session, service: models.Service, year: int, month: in
     return days
 
 
-def is_slot_free(db: Session, service: models.Service, start_at: datetime) -> bool:
+def is_slot_free(
+    db: Session,
+    service: models.Service,
+    start_at: datetime,
+    exclude_appointment_id: int | None = None,
+) -> bool:
     """Valida que un inicio concreto esté dentro de horario y libre."""
     if start_at.weekday() in settings.closed_weekdays_set:
         return False
@@ -105,5 +114,5 @@ def is_slot_free(db: Session, service: models.Service, start_at: datetime) -> bo
     if start_at <= local_now():
         return False
 
-    booked = _booked_that_day(db, start_at.date())
+    booked = _booked_that_day(db, start_at.date(), exclude_appointment_id)
     return not any(_overlaps(start_at, end_at, b.start_at, b.end_at) for b in booked)
