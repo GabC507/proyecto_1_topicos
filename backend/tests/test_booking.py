@@ -16,6 +16,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import models  # noqa: E402
+from app.config import settings  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.utils import PhoneError, local_now, normalize_phone  # noqa: E402
@@ -488,6 +489,59 @@ def test_month_calendar_shows_partial_days_and_releases_cancelled_bookings():
     reopened = client.get(url).json()
     reopened_day = next(item for item in reopened if item["date"] == day.date().isoformat())
     assert reopened_day["status"] == "available"
+
+
+def test_month_calendar_marks_fully_booked_day_as_full_with_zero_slots():
+    service_id = client.get("/api/services").json()[0]["id"]
+    day = _next_open_day_at(11)
+    date_text = day.date().isoformat()
+    slots = client.get(
+        f"/api/availability?service_id={service_id}&date={date_text}"
+    ).json()
+    assert slots
+
+    for slot in slots:
+        start = day.replace(
+            hour=int(slot[:2]), minute=int(slot[3:]), second=0, microsecond=0
+        )
+        response = client.post(
+            "/api/appointments",
+            json={
+                "customer_name": "Reserva QA",
+                "customer_phone": "942916570",
+                "service_id": service_id,
+                "start_at": start.isoformat(),
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    month = day.strftime("%Y-%m")
+    calendar = client.get(
+        f"/api/availability/calendar?service_id={service_id}&month={month}"
+    )
+    assert calendar.status_code == 200, calendar.text
+    full_day = next(item for item in calendar.json() if item["date"] == date_text)
+    assert full_day["status"] == "full"
+    assert full_day["available_slots"] == 0
+
+
+def test_month_calendar_marks_closed_day_as_unavailable_with_zero_slots():
+    assert settings.closed_weekdays_set
+    day = local_now().date() + timedelta(days=1)
+    while day.weekday() not in settings.closed_weekdays_set:
+        day += timedelta(days=1)
+
+    service_id = client.get("/api/services").json()[0]["id"]
+    month = day.strftime("%Y-%m")
+    calendar = client.get(
+        f"/api/availability/calendar?service_id={service_id}&month={month}"
+    )
+    assert calendar.status_code == 200, calendar.text
+    unavailable_day = next(
+        item for item in calendar.json() if item["date"] == day.isoformat()
+    )
+    assert unavailable_day["status"] == "unavailable"
+    assert unavailable_day["available_slots"] == 0
 
 
 def test_reject_invalid_phone_on_booking():
