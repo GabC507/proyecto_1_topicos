@@ -4,11 +4,13 @@ import tempfile
 from pathlib import Path
 
 # Usar una base de datos de prueba aislada ANTES de importar la app.
-test_db_path = (Path(tempfile.gettempdir()) / "citafacil_test.db").as_posix()
-os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path}"
+# Se usa el directorio temporal del sistema para que funcione también en Windows.
+TEST_DB_PATH = Path(tempfile.gettempdir()) / "citafacil_test.db"
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
 os.environ["ADMIN_TOKEN"] = "test-token"
 
-from datetime import datetime, timedelta  # noqa: E402
+from datetime import date, datetime, time, timedelta  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -38,6 +40,142 @@ def _next_open_day_at(hour: int):
     while d.weekday() == 6:  # saltar domingo
         d += timedelta(days=1)
     return d
+
+
+def _forecast_appointment(day, status="pending"):
+    return SimpleNamespace(
+        start_at=datetime.combine(day, time(10, 0)),
+        status=status,
+    )
+
+
+def _build_demand_forecast(appointments, today, history_weeks):
+    from app.forecast import build_demand_forecast
+
+    return build_demand_forecast(appointments, today, history_weeks)
+
+
+# ---------- Previsión de demanda: cálculo ----------
+def test_forecast_averages_same_weekday_and_ignores_cancelled_and_future():
+    appointments = [
+        _forecast_appointment(date(2026, 10, 11)),
+        _forecast_appointment(date(2026, 10, 11)),
+        _forecast_appointment(date(2026, 10, 12)),
+        _forecast_appointment(date(2026, 10, 12)),
+        _forecast_appointment(date(2026, 10, 12), "cancelled"),
+        _forecast_appointment(date(2026, 10, 19), "done"),
+        _forecast_appointment(date(2026, 10, 19), "done"),
+        _forecast_appointment(date(2026, 10, 19), "done"),
+        _forecast_appointment(date(2026, 10, 19), "done"),
+        _forecast_appointment(date(2026, 10, 19), "cancelled"),
+        _forecast_appointment(date(2026, 10, 27)),
+    ]
+
+    result = _build_demand_forecast(
+        appointments, today=date(2026, 10, 25), history_weeks=2
+    )
+
+    assert result["has_history"] is True
+    assert result["forecast_start"] == "2026-10-26"
+    assert result["forecast_end"] == "2026-11-01"
+    assert len(result["estimates"]) == 7
+    assert result["estimates"][0] == {
+        "date": "2026-10-26",
+        "weekday": "lunes",
+        "average_appointments": 3.0,
+    }
+    assert result["estimates"][1]["average_appointments"] == 0.0
+    assert result["estimates"][-1]["average_appointments"] == 1.0
+
+
+def test_forecast_returns_empty_estimates_without_eligible_history():
+    result = _build_demand_forecast(
+        [
+            _forecast_appointment(date(2026, 10, 20), "cancelled"),
+            _forecast_appointment(date(2026, 10, 25)),
+            _forecast_appointment(date(2026, 10, 27)),
+        ],
+        today=date(2026, 10, 25),
+        history_weeks=2,
+    )
+
+    assert result["has_history"] is False
+    assert result["estimates"] == []
+    assert result["message"] == "Aún no hay historial de reservas suficiente para calcular una previsión."
+
+
+def test_admin_forecast_requires_valid_token():
+    assert client.get("/api/admin/forecast").status_code == 422
+    assert client.get(
+        "/api/admin/forecast", headers={"X-Admin-Token": "malo"}
+    ).status_code == 401
+
+
+def test_admin_forecast_validates_history_weeks():
+    headers = {"X-Admin-Token": "test-token"}
+    assert client.get(
+        "/api/admin/forecast?history_weeks=0", headers=headers
+    ).status_code == 422
+    assert client.get(
+        "/api/admin/forecast?history_weeks=53", headers=headers
+    ).status_code == 422
+
+
+def test_admin_forecast_returns_empty_state_without_history():
+    response = client.get(
+        "/api/admin/forecast", headers={"X-Admin-Token": "test-token"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["has_history"] is False
+    assert response.json()["history_weeks"] == 8
+    assert response.json()["estimates"] == []
+    assert response.json()["message"]
+
+
+def test_admin_forecast_returns_same_weekday_average_and_excludes_cancelled():
+    today = local_now().date()
+    target_date = today + timedelta(days=1)
+    historical_dates = [target_date - timedelta(days=7), target_date - timedelta(days=14)]
+    db = SessionLocal()
+    service = db.query(models.Service).first()
+    for day, count in ((historical_dates[0], 2), (historical_dates[1], 4)):
+        for index in range(count):
+            start_at = datetime.combine(day, time(10, index * 5))
+            db.add(
+                models.Appointment(
+                    customer_name="Demo",
+                    customer_phone="+56900000000",
+                    service_id=service.id,
+                    start_at=start_at,
+                    end_at=start_at + timedelta(minutes=30),
+                    status="confirmed",
+                )
+            )
+    cancelled_start = datetime.combine(historical_dates[0], time(15, 0))
+    db.add(
+        models.Appointment(
+            customer_name="Demo cancelada",
+            customer_phone="+56900000000",
+            service_id=service.id,
+            start_at=cancelled_start,
+            end_at=cancelled_start + timedelta(minutes=30),
+            status="cancelled",
+        )
+    )
+    db.commit()
+    db.close()
+
+    response = client.get(
+        "/api/admin/forecast?history_weeks=2",
+        headers={"X-Admin-Token": "test-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["has_history"] is True
+    assert payload["estimates"][0]["date"] == target_date.isoformat()
+    assert payload["estimates"][0]["average_appointments"] == 3.0
 
 
 # ---------- Validación de teléfono ----------
