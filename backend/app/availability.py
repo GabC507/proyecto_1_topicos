@@ -1,6 +1,8 @@
 """Lógica de disponibilidad: genera horarios libres y evita el doble-booking."""
 from __future__ import annotations
 
+import calendar
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import Session
@@ -31,13 +33,18 @@ def _booked_that_day(db: Session, day: date) -> list[models.Appointment]:
 
 def generate_slots(db: Session, service: models.Service, day: date) -> list[str]:
     """Horas 'HH:MM' disponibles para un servicio en un día dado."""
+    return _generate_slots(service, day, _booked_that_day(db, day))
+
+
+def _generate_slots(
+    service: models.Service, day: date, booked: list[models.Appointment]
+) -> list[str]:
     if day.weekday() in settings.closed_weekdays_set:
         return []
 
     duration = timedelta(minutes=service.duration_min)
     open_dt = datetime.combine(day, time(hour=settings.open_hour))
     close_dt = datetime.combine(day, time(hour=settings.close_hour))
-    booked = _booked_that_day(db, day)
     now = local_now()
 
     slots: list[str] = []
@@ -53,6 +60,36 @@ def generate_slots(db: Session, service: models.Service, day: date) -> list[str]
             slots.append(cursor.strftime("%H:%M"))
         cursor += step
     return slots
+
+
+def generate_calendar(db: Session, service: models.Service, year: int, month: int) -> list[dict]:
+    """Summarize every date in a month for the booking calendar."""
+    month_start = date(year, month, 1)
+    next_month = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    appointments = (
+        db.query(models.Appointment)
+        .filter(
+            models.Appointment.status != models.STATUS_CANCELLED,
+            models.Appointment.start_at >= datetime.combine(month_start, time.min),
+            models.Appointment.start_at < datetime.combine(next_month, time.min),
+        )
+        .all()
+    )
+    booked_by_day: dict[date, list[models.Appointment]] = defaultdict(list)
+    for appointment in appointments:
+        booked_by_day[appointment.start_at.date()].append(appointment)
+
+    days = []
+    for day_number in range(1, calendar.monthrange(year, month)[1] + 1):
+        current = date(year, month, day_number)
+        booked = booked_by_day[current]
+        slots = _generate_slots(service, current, booked)
+        if booked:
+            status = "partial" if slots else "full"
+        else:
+            status = "available" if slots else "unavailable"
+        days.append({"date": current, "status": status, "available_slots": len(slots)})
+    return days
 
 
 def is_slot_free(db: Session, service: models.Service, start_at: datetime) -> bool:

@@ -1,13 +1,13 @@
 """Endpoints públicos: config, servicios, disponibilidad y creación de reservas."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import crud, schemas
-from ..availability import generate_slots, is_slot_free
+from ..availability import generate_calendar, generate_slots, is_slot_free
 from ..config import settings
 from ..database import get_db
 from ..notifications import confirmation_message, send_whatsapp
@@ -43,6 +43,26 @@ def get_availability(
     if not service or not service.active:
         raise HTTPException(status_code=404, detail="Servicio no encontrado.")
     return generate_slots(db, service, day)
+
+
+@router.get(
+    "/availability/calendar",
+    response_model=list[schemas.AvailabilityCalendarDayOut],
+    summary="Disponibilidad diaria de un mes",
+)
+def get_availability_calendar(
+    service_id: int = Query(..., description="ID del servicio"),
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Mes YYYY-MM"),
+    db: Session = Depends(get_db),
+):
+    service = crud.get_service(db, service_id)
+    if not service or not service.active:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado.")
+    try:
+        month_start = datetime.strptime(month, "%Y-%m").date()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Mes inválido.") from exc
+    return generate_calendar(db, service, month_start.year, month_start.month)
 
 
 @router.post(
