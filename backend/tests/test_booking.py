@@ -175,6 +175,105 @@ def test_customer_can_reschedule_and_cannot_take_an_occupied_slot():
     assert moved.json()["status"] == models.STATUS_PENDING
 
 
+def test_admin_blocked_interval_is_enforced_and_can_be_removed():
+    service_id = client.get("/api/services").json()[0]["id"]
+    day = _next_open_day_at(11)
+    headers = {"X-Admin-Token": "test-token"}
+    payload = {
+        "day": day.date().isoformat(),
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "reason": "Almuerzo",
+    }
+    assert client.get("/api/admin/blocked-times").status_code == 422
+    assert client.post("/api/admin/blocked-times", json=payload).status_code == 422
+
+    created = client.post("/api/admin/blocked-times", headers=headers, json=payload)
+    assert created.status_code == 201, created.text
+    assert created.json()["reason"] == "Almuerzo"
+
+    available = client.get(
+        f"/api/availability?service_id={service_id}&date={day.date().isoformat()}"
+    ).json()
+    assert "11:00" in available
+    assert "12:00" not in available
+    assert "12:30" not in available
+    calendar = client.get(
+        f"/api/availability/calendar?service_id={service_id}&month={day.strftime('%Y-%m')}"
+    ).json()
+    calendar_day = next(item for item in calendar if item["date"] == day.date().isoformat())
+    assert calendar_day["status"] == "partial"
+
+    direct_booking = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Camila",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": day.replace(hour=12).isoformat(),
+        },
+    )
+    assert direct_booking.status_code == 409
+
+    removed = client.delete(f"/api/admin/blocked-times/{created.json()['id']}", headers=headers)
+    assert removed.status_code == 200
+    reopened = client.get(
+        f"/api/availability?service_id={service_id}&date={day.date().isoformat()}"
+    ).json()
+    assert "12:00" in reopened
+
+
+def test_admin_can_block_a_full_day_but_not_overwrite_an_active_appointment():
+    service_id = client.get("/api/services").json()[0]["id"]
+    day = _next_open_day_at(11)
+    headers = {"X-Admin-Token": "test-token"}
+    full_day = client.post(
+        "/api/admin/blocked-times",
+        headers=headers,
+        json={"day": day.date().isoformat(), "reason": "Cerrado"},
+    )
+    assert full_day.status_code == 201, full_day.text
+    date_text = day.date().isoformat()
+    availability = client.get(f"/api/availability?service_id={service_id}&date={date_text}")
+    assert availability.json() == []
+    calendar = client.get(
+        f"/api/availability/calendar?service_id={service_id}&month={day.strftime('%Y-%m')}"
+    ).json()
+    calendar_day = next(item for item in calendar if item["date"] == date_text)
+    assert calendar_day["status"] == "full"
+    direct_booking = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Camila",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": day.isoformat(),
+        },
+    )
+    assert direct_booking.status_code == 409
+
+    removed = client.delete(
+        f"/api/admin/blocked-times/{full_day.json()['id']}", headers=headers
+    )
+    assert removed.status_code == 200
+    booked = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Camila",
+            "customer_phone": "942916570",
+            "service_id": service_id,
+            "start_at": day.isoformat(),
+        },
+    )
+    assert booked.status_code == 201, booked.text
+    overlaps_booking = client.post(
+        "/api/admin/blocked-times",
+        headers=headers,
+        json={"day": date_text, "start_time": "11:00", "end_time": "12:00"},
+    )
+    assert overlaps_booking.status_code == 409
+
+
 def test_availability_removes_booked_slot():
     sid = client.get("/api/services").json()[0]["id"]
     day = _next_open_day_at(11)

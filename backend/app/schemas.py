@@ -1,10 +1,10 @@
 """Esquemas Pydantic (validación de entrada/salida de la API)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .models import VALID_STATUSES
 from .utils import PhoneError, normalize_cl_phone, to_local_naive
@@ -105,6 +105,31 @@ class AppointmentStatusUpdate(BaseModel):
         if v not in VALID_STATUSES:
             raise ValueError(f"Estado inválido. Debe ser uno de: {sorted(VALID_STATUSES)}")
         return v
+
+
+class BlockedTimeCreate(BaseModel):
+    day: date
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    reason: str = Field("", max_length=200)
+
+    @model_validator(mode="after")
+    def _validate_interval(self):
+        if (self.start_time is None) != (self.end_time is None):
+            raise ValueError(
+                "Indica ambas horas o deja ambas vacías para bloquear el día completo."
+            )
+        if self.start_time is not None and self.start_time >= self.end_time:
+            raise ValueError("La hora de inicio debe ser anterior a la hora de término.")
+        return self
+
+
+class BlockedTimeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    start_at: datetime
+    end_at: datetime
+    reason: str
 
 
 # ---------- Otros ----------

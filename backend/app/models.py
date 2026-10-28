@@ -56,6 +56,20 @@ class AppointmentAccess(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     appointment_id = Column(
-        Integer, ForeignKey("appointments.id", ondelete="CASCADE"), nullable=False, unique=True
+        Integer,
+        ForeignKey("appointments.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
     )
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
+
+
+class BlockedTime(Base):
+    """A date or interval that the administrator removes from availability."""
+
+    __tablename__ = "blocked_times"
+
+    id = Column(Integer, primary_key=True, index=True)
+    start_at = Column(DateTime, nullable=False, index=True)
+    end_at = Column(DateTime, nullable=False)
+    reason = Column(String(200), nullable=False, default="")

@@ -35,13 +35,31 @@ def _booked_that_day(
     return query.all()
 
 
+def _blocked_that_day(db: Session, day: date) -> list[models.BlockedTime]:
+    day_start = datetime.combine(day, time.min)
+    day_end = datetime.combine(day + timedelta(days=1), time.min)
+    return (
+        db.query(models.BlockedTime)
+        .filter(
+            models.BlockedTime.start_at < day_end,
+            models.BlockedTime.end_at > day_start,
+        )
+        .all()
+    )
+
+
 def generate_slots(db: Session, service: models.Service, day: date) -> list[str]:
     """Horas 'HH:MM' disponibles para un servicio en un día dado."""
-    return _generate_slots(service, day, _booked_that_day(db, day))
+    return _generate_slots(
+        service, day, _booked_that_day(db, day), _blocked_that_day(db, day)
+    )
 
 
 def _generate_slots(
-    service: models.Service, day: date, booked: list[models.Appointment]
+    service: models.Service,
+    day: date,
+    booked: list[models.Appointment],
+    blocked: list[models.BlockedTime] | None = None,
 ) -> list[str]:
     if day.weekday() in settings.closed_weekdays_set:
         return []
@@ -52,6 +70,7 @@ def _generate_slots(
     now = local_now()
 
     slots: list[str] = []
+    blocked = blocked or []
     cursor = open_dt
     step = timedelta(minutes=settings.slot_interval_minutes)
     while cursor + duration <= close_dt:
@@ -60,6 +79,9 @@ def _generate_slots(
             cursor += step
             continue
         conflict = any(_overlaps(cursor, slot_end, b.start_at, b.end_at) for b in booked)
+        conflict = conflict or any(
+            _overlaps(cursor, slot_end, b.start_at, b.end_at) for b in blocked
+        )
         if not conflict:
             slots.append(cursor.strftime("%H:%M"))
         cursor += step
@@ -79,16 +101,28 @@ def generate_calendar(db: Session, service: models.Service, year: int, month: in
         )
         .all()
     )
+    blocked_times = (
+        db.query(models.BlockedTime)
+        .filter(
+            models.BlockedTime.start_at < datetime.combine(next_month, time.min),
+            models.BlockedTime.end_at > datetime.combine(month_start, time.min),
+        )
+        .all()
+    )
     booked_by_day: dict[date, list[models.Appointment]] = defaultdict(list)
     for appointment in appointments:
         booked_by_day[appointment.start_at.date()].append(appointment)
+    blocked_by_day: dict[date, list[models.BlockedTime]] = defaultdict(list)
+    for block in blocked_times:
+        blocked_by_day[block.start_at.date()].append(block)
 
     days = []
     for day_number in range(1, calendar.monthrange(year, month)[1] + 1):
         current = date(year, month, day_number)
         booked = booked_by_day[current]
-        slots = _generate_slots(service, current, booked)
-        if booked:
+        blocked = blocked_by_day[current]
+        slots = _generate_slots(service, current, booked, blocked)
+        if booked or blocked:
             status = "partial" if slots else "full"
         else:
             status = "available" if slots else "unavailable"
@@ -115,4 +149,11 @@ def is_slot_free(
         return False
 
     booked = _booked_that_day(db, start_at.date(), exclude_appointment_id)
-    return not any(_overlaps(start_at, end_at, b.start_at, b.end_at) for b in booked)
+    blocked = _blocked_that_day(db, start_at.date())
+    has_booking_conflict = any(
+        _overlaps(start_at, end_at, b.start_at, b.end_at) for b in booked
+    )
+    has_block_conflict = any(
+        _overlaps(start_at, end_at, b.start_at, b.end_at) for b in blocked
+    )
+    return not (has_booking_conflict or has_block_conflict)

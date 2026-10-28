@@ -16,8 +16,8 @@ El equipo trabaja en cinco historias: reutilizar datos de contacto con consentim
 
 ### Avance del equipo
 
-- **Previsión de demanda:** implementación local del endpoint protegido, cálculo histórico, gráfico administrativo y pruebas automatizadas. La suite local pasó **9 pruebas** con Python 3.12.10; quedan pendientes la revisión independiente y las pruebas funcionales de QA del equipo.
-- **Otras historias:** datos guardados, calendario dinámico, cancelación/reprogramación segura y bloqueo de horarios están planificadas en [`PLAN_DE_TRABAJO_EQUIPO.md`](PLAN_DE_TRABAJO_EQUIPO.md).
+- **Historias implementadas:** previsión de demanda, datos guardados con consentimiento, calendario dinámico, cancelación/reprogramación con código privado y bloqueo administrativo de horarios.
+- **Estado de validación:** las pruebas automatizadas del backend pasan localmente con Python 3.12.6. La QA funcional independiente en escritorio y móvil y la revisión de los PR siguen pendientes.
 - **Proceso y uso de IA:** los resultados verificados y las decisiones humanas se registran en [`AI_DEVELOPMENT_LOG.md`](AI_DEVELOPMENT_LOG.md).
 
 El detalle de roles, criterios de aceptación y próximos pasos está en el [plan de trabajo del equipo](PLAN_DE_TRABAJO_EQUIPO.md). Esta es una adaptación académica; no implica autoría del equipo sobre la aplicación base.
