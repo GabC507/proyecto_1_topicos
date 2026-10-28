@@ -446,6 +446,7 @@
 
   function selectService(s, el){
     state.service = s; state.date=null; state.time=null;
+    slotsReq++;
     document.querySelectorAll(".svc").forEach(x=>x.classList.remove("sel"));
     el.classList.add("sel");
     $("whenHint").textContent = `${s.name} · ${s.duration_min} min · ${money(s.price)}`;
@@ -463,6 +464,7 @@
     const next = new Date(year, month - 1 + delta, 1);
     state.month = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,"0")}`;
     state.date = null; state.time = null;
+    slotsReq++;
     $("slots").innerHTML = '<div class="empty">Elige un día del calendario.</div>';
     loadCalendar();
   }
