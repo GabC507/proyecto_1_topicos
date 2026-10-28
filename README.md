@@ -32,7 +32,7 @@ El detalle de roles, criterios de aceptación y próximos pasos está en el [pla
 - **Panel de administración**: estadísticas, gestión de reservas (confirmar / cancelar / realizar / eliminar) y de servicios (crear / activar / eliminar), protegido por token.
 - **Previsión de demanda**: promedio de reservas por día de la semana a partir del historial; excluye citas canceladas y muestra cuando aún no hay datos.
 - **API REST documentada**: Swagger UI interactivo en `/docs`.
-- **Validación de datos**: teléfonos chilenos normalizados a formato E.164, horarios de atención y días cerrados configurables.
+- **Validación de datos**: teléfonos chilenos y panameños normalizados a formato E.164, horarios de atención y días cerrados configurables.
 - **Listo para desplegar**: Dockerfile, blueprint de Render y configuración por variables de entorno (SQLite en local → PostgreSQL en producción).
 
 ---

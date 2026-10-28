@@ -180,7 +180,7 @@
       <p class="hint">Para confirmarte la reserva por WhatsApp.</p>
       <div class="summary" id="summary"></div>
       <div class="field"><label for="name">Nombre y apellido</label><input id="name" placeholder="Ej: Camila Rojas" autocomplete="name" /></div>
-      <div class="field"><label for="phone">Celular (WhatsApp)</label><input id="phone" placeholder="+56 9 XXXX XXXX" inputmode="tel" autocomplete="tel" /></div>
+      <div class="field"><label for="phone">Celular (WhatsApp)</label><input id="phone" placeholder="+56 9 XXXX XXXX o +507 6XXX XXXX" inputmode="tel" autocomplete="tel" /></div>
       <div class="field">
         <label class="consent"><input id="saveContactConsent" type="checkbox" />
           <span>Recordar mis datos de contacto para futuras reservas</span>
@@ -255,7 +255,17 @@
     const t = timeoutMs ? setTimeout(()=>ctrl.abort(), timeoutMs) : null;
     try{
       const r = await fetch(API + path, Object.assign({}, opts||{}, {signal: ctrl.signal}));
-      if(!r.ok){ let d; try{d=await r.json()}catch(e){}; throw new Error((d&&d.detail) || ("Error "+r.status)); }
+      if(!r.ok){
+        let d; try{d=await r.json()}catch(e){}
+        const detail=d&&d.detail;
+        const labels={customer_name:"Nombre",customer_phone:"Celular",service_id:"Servicio",start_at:"Fecha y hora",notes:"Nota",management_token:"Código de gestión"};
+        const message=typeof detail==="string"?detail:Array.isArray(detail)?detail.map(item=>{
+          if(typeof item==="string") return item;
+          const field=Array.isArray(item.loc)?item.loc.filter(part=>part!=="body").map(part=>labels[part]||part).join("."):"";
+          return `${field?field+": ":""}${item.msg||"Dato inválido"}`;
+        }).join("; "):detail&&typeof detail==="object"?JSON.stringify(detail):("Error "+r.status);
+        const error=new Error(message); error.status=r.status; throw error;
+      }
       return r.status===204 ? null : r.json();
     } finally { if(t) clearTimeout(t); }
   }
@@ -581,8 +591,13 @@
       $("cardDone").scrollIntoView({behavior:"smooth",block:"center"});
     }catch(e){
       msg.className="msg err";
-      msg.textContent = e.message==="Error 409" ? "Ese horario ya fue tomado. Elige otro." : e.message;
-      loadSlots();
+      if(e.status===409){
+        msg.textContent="Ese horario ya fue tomado. Elige otro.";
+        state.time=null;
+        loadSlots();
+      }else{
+        msg.textContent=e.message;
+      }
     }finally{ btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-check"></i> Confirmar reserva'; }
   });
 

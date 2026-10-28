@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import models  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.utils import PhoneError, local_now, normalize_cl_phone  # noqa: E402
+from app.utils import PhoneError, local_now, normalize_phone  # noqa: E402
 
 client = TestClient(app)
 
@@ -180,15 +180,34 @@ def test_admin_forecast_returns_same_weekday_average_and_excludes_cancelled():
 
 # ---------- Validación de teléfono ----------
 def test_phone_valid_formats():
-    assert normalize_cl_phone("+56 9 4291 6570") == "+56942916570"
-    assert normalize_cl_phone("942916570") == "+56942916570"
-    assert normalize_cl_phone("56942916570") == "+56942916570"
-    assert normalize_cl_phone("4291 6570") == "+56942916570"  # 8 dígitos -> antepone 9
+    assert normalize_phone("+56 9 4291 6570") == "+56942916570"
+    assert normalize_phone("942916570") == "+56942916570"
+    assert normalize_phone("56942916570") == "+56942916570"
+    assert normalize_phone("4291 6570") == "+56942916570"  # 8 dígitos -> antepone 9
+    assert normalize_phone("+507 6123 4567") == "+50761234567"
+    assert normalize_phone("50722345678") == "+50722345678"
 
 
 def test_phone_invalid():
     with pytest.raises(PhoneError):
-        normalize_cl_phone("12345")
+        normalize_phone("12345")
+    with pytest.raises(PhoneError):
+        normalize_phone("+507 1234 5678")
+
+
+def test_booking_accepts_panama_phone():
+    service_id = client.get("/api/services").json()[0]["id"]
+    response = client.post(
+        "/api/appointments",
+        json={
+            "customer_name": "Cliente Panamá",
+            "customer_phone": "+507 6123 4567",
+            "service_id": service_id,
+            "start_at": _next_open_day_at(11).isoformat(),
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["customer_phone"] == "+50761234567"
 
 
 # ---------- Reservas ----------

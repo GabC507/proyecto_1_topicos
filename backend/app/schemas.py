@@ -7,7 +7,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .models import VALID_STATUSES
-from .utils import PhoneError, normalize_cl_phone, to_local_naive
+from .utils import PhoneError, normalize_phone, to_local_naive
 
 
 # ---------- Servicios ----------
@@ -46,7 +46,7 @@ class AppointmentCreate(BaseModel):
     @classmethod
     def _validate_phone(cls, v: str) -> str:
         try:
-            return normalize_cl_phone(v)
+            return normalize_phone(v)
         except PhoneError as e:
             raise ValueError(str(e))
 
